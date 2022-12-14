@@ -1,0 +1,4 @@
+#!/bin/sh
+SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
+echo $SCRIPT_DIR
+python3 $SCRIPT_DIR/logsWindow.py
