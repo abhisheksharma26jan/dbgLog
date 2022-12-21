@@ -5,6 +5,7 @@ from bs4 import BeautifulSoup
 import subprocess
 import os
 from tkinter import filedialog as fd
+import traceback
 
 home_dir = os.path.expanduser('~')
 awsProfilePath = home_dir+"/.aws_profile"
@@ -49,13 +50,24 @@ def selectInstance(event):
 
     if not foundInFile:
         files = []
-        grepProcess = subprocess.Popen(
-            [ROOT_DIR + "/scripts/getLogFilesHelper.sh", awsProfile, awsProfilePath, instance, filePath, searchKey],
-            cwd=ROOT_DIR, stdout=subprocess.PIPE)
+
+        try:
+            grepProcess = subprocess.run(
+                [ROOT_DIR + "/scripts/getLogFilesHelper.sh", awsProfile, awsProfilePath, instance, filePath, searchKey],
+                cwd=ROOT_DIR, capture_output=True , timeout=30)
+        except Exception as e:
+            grepText.insert(tk.END, "Time Out\n")
+            grepText.insert(tk.END, str(traceback.format_exc()) + "\n", "error")
+            return
 
         instanceFilesFiles = open(ROOT_DIR + "/instanceFiles.csv", "a")
         instanceFilesFiles.write(instance+"$")
-        for line in grepProcess.stdout:
+
+        for line in grepProcess.stderr.splitlines():
+            line = line.decode('utf-8').strip()
+            grepText.insert(tk.END, line + "\n", "error")
+
+        for line in grepProcess.stdout.splitlines():
             line = line.decode('utf-8').strip()
             if "logs" in line and len(line)>6:
                 files.append(line)
@@ -75,8 +87,6 @@ def selectInstance(event):
 def readLog4J():
     grepText.delete('1.0', tk.END)
 
-
-
     awsProfile = "bigdentest"
     instance = instancecbox.get().replace("'", "")
     host = hostcbox.get()
@@ -85,8 +95,6 @@ def readLog4J():
         grepText.insert(tk.END, "Select a valid instance!\n" ,"error")
         grepText.update()
         return
-
-
 
     if "STLS" in host:
         logFilePath = "/ngs/app/dsservd/IDMSQA2/DS/IdmsCoreServiceClassic/noacmpods/runtime/apple/log4j2.xml"
@@ -97,21 +105,38 @@ def readLog4J():
     elif "eDSAS" in host:
         logFilePath = "/ngs/app/dsservd/IDMSQA2/DS/IdMSPublishing/defaultInstance/runtime/apple/log4j2.xml"
 
-    grepText.insert(tk.END, "Reading "+logFilePath+"\n")
+    grepText.insert(tk.END, "Reading "+logFilePath+"\n","heading")
     grepText.update()
 
-    grepProcess = subprocess.Popen(
-        [ROOT_DIR + "/scripts/readLog4JHelper.sh", awsProfile, awsProfilePath, instance, logFilePath ],
-        cwd=ROOT_DIR, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    try:
+        grepProcess = subprocess.run(
+            [ROOT_DIR + "/scripts/readLog4JHelper.sh", awsProfile, awsProfilePath, instance, logFilePath ],
+            cwd=ROOT_DIR, capture_output=True , timeout=30)
+    except Exception as e:
+        grepText.insert(tk.END,"Time Out\n")
+        grepText.insert(tk.END, str(traceback.format_exc()) + "\n", "error")
+        return
+
 
     count = 0
-    for line in grepProcess.stdout:
+    for line in grepProcess.stderr.splitlines():
         line = line.decode('utf-8').strip()
+        grepText.insert(tk.END, line+"\n", "error")
 
+    for line in grepProcess.stdout.splitlines():
+        line = line.decode('utf-8').strip()
         if "DEBUG" in line:
             grepText.insert(tk.END, line.split("DEBUG", 1)[0], )
             grepText.insert(tk.END, "DEBUG", "searchKey")
             grepText.insert(tk.END, line.split("DEBUG", 1)[1])
+        elif "ERROR" in line:
+            grepText.insert(tk.END, line.split("ERROR", 1)[0], )
+            grepText.insert(tk.END, "ERROR", "green")
+            grepText.insert(tk.END, line.split("ERROR", 1)[1])
+        elif "INFO" in line:
+            grepText.insert(tk.END, line.split("INFO", 1)[0], )
+            grepText.insert(tk.END, "INFO", "yellow")
+            grepText.insert(tk.END, line.split("INFO", 1)[1])
         else:
             grepText.insert(tk.END, line+"\n")
 
@@ -122,6 +147,67 @@ def readLog4J():
 
         count = count +1
 
+    grepText.update()
+    grepText.see("end")
+
+
+def dbgToggle(mode):
+
+    grepText.delete('1.0', tk.END)
+
+    awsProfile = "bigdentest"
+    instance = instancecbox.get().replace("'", "")
+    host = hostcbox.get()
+
+    if len(instance) <1:
+        grepText.insert(tk.END, "Select a valid instance!\n" ,"error")
+        grepText.update()
+        return
+
+    if "STLS" in host:
+        logFilePath = "/ngs/app/dsservd/IDMSQA2/DS/IdmsCoreServiceClassic/noacmpods/runtime/apple/log4j2.xml"
+    elif "I3RW" in host:
+         logFilePath = "/ngs/app/dsservd/IDMSQA2/DS/i3Write/defaultInstance/runtime/apple/log4j2.xml"
+    elif "DSPF" in host:
+        logFilePath = "/ngs/app/dsservd/IDMSQA2/DS/IdMSPublishing/defaultInstance/runtime/apple/log4j2.xml"
+    elif "eDSAS" in host:
+        logFilePath = "/ngs/app/dsservd/IDMSQA2/DS/IdMSPublishing/defaultInstance/runtime/apple/log4j2.xml"
+
+    grepText.insert(tk.END, "Setting DBG mode to "+mode ,"heading")
+    grepText.insert(tk.END, " \nlog4j2.xml File: "+logFilePath+"\n")
+
+    grepText.insert(tk.END, "Running the commands:\nsed -i \"/Root/,+0 s/DEBUG/ERROR/\"  \nsed -i \"/DSLog/,+0 s/DEBUG/ERROR/\"  \nsed -i \"/server.log/,+2 s/DEBUG/ERROR/\" \n")
+    grepText.update()
+
+    try:
+        grepProcess = subprocess.run(
+            [ROOT_DIR + "/scripts/toggleDebugModeHelper.sh", awsProfile, awsProfilePath, instance, logFilePath,mode ],
+            cwd=ROOT_DIR,capture_output=True , timeout=30)
+    except Exception as e:
+        grepText.insert(tk.END, "Time Out\n")
+        grepText.insert(tk.END, str(traceback.format_exc()) + "\n", "error")
+        return
+
+    for line in grepProcess.stderr.splitlines():
+        line = line.decode('utf-8').strip()
+        grepText.insert(tk.END, line+"\n", "error")
+
+    count = 0
+    for line in grepProcess.stdout.splitlines():
+        line = line.decode('utf-8').strip()
+        grepText.insert(tk.END, line+"\n")
+
+        if count % 10 == 0:
+            grepText.update()
+            grepText.see("end")
+
+        count = count +1
+
+    grepText.insert(tk.END, "Done!\n", "complete")
+
+
+def cleanLog():
+    pass
 
 def doGrep():
     instance = instancecbox.get().replace("'", "")
@@ -136,7 +222,7 @@ def doGrep():
     B = BCB.get()
 
     grepText.delete('1.0', tk.END)
-    grepText.insert(tk.END, "grep instance: "+instance+ " searchKey: "+searchKey+" filePath: "+filePath+"\n")
+    grepText.insert(tk.END, "Instance: "+instance+ " | searchKey: "+searchKey+" | filePath: "+filePath+"\n","heading")
     grepText.update()
 
     grepProcess = subprocess.Popen(
@@ -323,8 +409,8 @@ def logsWindow():
 
     newWindow.title("Debug Logs")
 
-    w= 1600
-    h = 700
+    w= 1400
+    h = 900
     ws = newWindow.winfo_screenwidth() # width of the screen
     hs = newWindow.winfo_screenheight() # height of the screen
     x = (ws/2) - (w/2)
@@ -443,7 +529,11 @@ def logsWindow():
     # TAGS
     grepText.tag_config('complete', font=("", 13, "bold"), foreground="#1ecafa", justify='left')
     grepText.tag_config('searchKey', font=("", 13,), foreground="red", justify='left')
-    grepText.tag_config('error', font=("", 13,), foreground="#b36336", justify='left')
+    grepText.tag_config('error', font=("", 14,), foreground="red", justify='left')
+    grepText.tag_config('heading', font=("", 15,"bold"), foreground="#f57b42", justify='center')
+    grepText.tag_config('green', font=("", 13,), foreground="#2fbd39", justify='left')
+    grepText.tag_config('yellow', font=("", 13,), foreground="#eddb3b", justify='left')
+
 
 
     grepText.tag_configure('found', background='#ffff73')
@@ -467,8 +557,13 @@ def logsWindow():
     searchEntry.pack(side="left",pady=3,padx=0)
     searchEntry.bind('<Return>', search)
 
-    searchResultLabel = tk.Label(serachFrame, text="", font=("Monospaced", "13"), )
-    searchResultLabel.pack(side="left", pady=3, padx=2)
+    searchResultLabel = tk.Label(serachFrame, text="", font=("Monospaced", "13"),width=20 )
+    searchResultLabel.pack(side="left", pady=3, padx=0)
+
+    cleanLogs = ttk.Checkbutton(serachFrame, text="cleanLogs", width=15,style="Red.TCheckbutton",command=updateCommandText)
+    cleanLogs.state(['selected', '!alternate'])
+    cleanLogs.pack(side="left", pady=3, padx=2)
+
 
     saveButton = tk.Button(serachFrame, text="Save As", command=save, activebackground="blue", padx=10, pady=10,cursor="hand")
     saveButton.pack(side="right", pady=3, padx=19)
@@ -479,9 +574,9 @@ def logsWindow():
     readLog4JButton = tk.Button(dbgTab, text ="Read Log4J", command = readLog4J,activebackground="blue",padx=10,pady=10,cursor="hand")
     readLog4JButton.pack(side="left",expand=True,fill="x")
 
-    dbgONButton = tk.Button(dbgTab, text ="DBG ON", command = doGrep,activebackground="blue",padx=10,pady=10,cursor="hand")
+    dbgONButton = tk.Button(dbgTab, text ="DBG ON",  command=lambda: dbgToggle("ON"),activebackground="blue",padx=10,pady=10,cursor="hand")
     dbgONButton.pack(side="left",expand=True,fill="x")
-    dbgOFFButton = tk.Button(dbgTab, text ="DBG OFF", command = doGrep,activebackground="blue",padx=10,pady=10,cursor="hand")
+    dbgOFFButton = tk.Button(dbgTab, text ="DBG OFF", command=lambda: dbgToggle("OFF"),activebackground="blue",padx=10,pady=10,cursor="hand")
     dbgOFFButton.pack(side="left",expand=True,fill="x")
 
 
